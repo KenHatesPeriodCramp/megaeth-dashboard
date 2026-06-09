@@ -59,7 +59,10 @@ def normalize_history(
     frame = frame[frame["symbol"].isin(allowed)].copy()
     frame["world_apr"] = pd.to_numeric(frame["world_apr"], errors="coerce")
     frame["gmx_apr"] = pd.to_numeric(frame["gmx_apr"], errors="coerce")
-    frame["gross_spread"] = frame["gmx_apr"] - frame["world_apr"]
+    frame["gross_spread"] = frame.apply(
+        lambda row: calculate_gross_spread(row["world_apr"], row["gmx_apr"]),
+        axis=1,
+    )
 
     if "time_utc" in frame:
         frame["time_utc"] = pd.to_datetime(
