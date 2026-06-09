@@ -100,6 +100,7 @@ async function prepareWorld() {
       const portfolio = await Portfolio.init(world);
       return { accountId, portfolio };
     })();
+    worldReady.catch(() => { worldReady = null; });
   }
   return worldReady;
 }

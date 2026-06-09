@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -25,6 +27,18 @@ COLORS = {
     "SOL": "#e9c2a0",
     "MEGA": "#5a9cff",
 }
+
+_LOGO_PATH = Path(__file__).parent / "assets" / "logo.png"
+
+
+def _logo_img_tag() -> str:
+    if not _LOGO_PATH.exists():
+        return ""
+    data = base64.b64encode(_LOGO_PATH.read_bytes()).decode()
+    return (
+        f'<img src="data:image/png;base64,{data}" '
+        'style="height:40px;border-radius:4px;margin-right:14px;vertical-align:middle;">'
+    )
 
 
 st.set_page_config(
@@ -63,7 +77,63 @@ def plain_money(value: Any) -> str:
     return f"${float(value):,.2f}"
 
 
-def render_pair_card(symbol: str, row: dict[str, Any] | None) -> None:
+def _hedge_html(hedge: dict[str, str | None] | None) -> str:
+    if hedge is None:
+        return ""
+    world_side = hedge.get("world")
+    gmx_side = hedge.get("gmx")
+    if not world_side and not gmx_side:
+        return '<div class="hedge-status none">NO POSITION</div>'
+    hedged = world_side == "long" and gmx_side == "short"
+    cls = "active" if hedged else "partial"
+    w = f"W:{world_side.upper()}" if world_side else "W:—"
+    g = f"G:{gmx_side.upper()}" if gmx_side else "G:—"
+    return f'<div class="hedge-status {cls}">{w} · {g}</div>'
+
+
+def compute_hedge_status(
+    payload: dict[str, Any],
+) -> dict[str, dict[str, str | None]]:
+    status: dict[str, dict[str, str | None]] = {
+        sym: {"world": None, "gmx": None} for sym in SYMBOLS
+    }
+    for pos in payload.get("positions", []):
+        sym = str(pos.get("symbol", "")).upper()
+        venue = str(pos.get("venue", "")).lower()
+        side = str(pos.get("side", "")).lower()
+        if sym in status and venue in ("world", "gmx"):
+            status[sym][venue] = side
+    return status
+
+
+def compute_pnl_summary(
+    payload: dict[str, Any],
+) -> tuple[float | None, float | None]:
+    total_pnl = total_funding = 0.0
+    has_data = False
+    for pos in payload.get("positions", []):
+        pnl = pos.get("pnlUsd")
+        fund = pos.get("fundingUsd")
+        if pnl is not None:
+            try:
+                total_pnl += float(pnl)
+                has_data = True
+            except (TypeError, ValueError):
+                pass
+        if fund is not None:
+            try:
+                total_funding += float(fund)
+            except (TypeError, ValueError):
+                pass
+    return (total_pnl, total_funding) if has_data else (None, None)
+
+
+def render_pair_card(
+    symbol: str,
+    row: dict[str, Any] | None,
+    hedge: dict[str, str | None] | None = None,
+) -> None:
+    h = _hedge_html(hedge)
     if not row:
         st.markdown(
             f"""
@@ -71,6 +141,7 @@ def render_pair_card(symbol: str, row: dict[str, Any] | None) -> None:
               <div class="terminal-label">{symbol}/USD</div>
               <div class="metric-value neutral">N/A</div>
               <div class="metric-detail">WAITING FOR DATA</div>
+              {h}
             </div>
             """,
             unsafe_allow_html=True,
@@ -90,6 +161,7 @@ def render_pair_card(symbol: str, row: dict[str, Any] | None) -> None:
             WORLD LONG: {signed(row.get("world_apr"), suffix="%")}<br/>
             GMX SHORT: {signed(row.get("gmx_apr"), suffix="%")}
           </div>
+          {h}
         </div>
         """,
         unsafe_allow_html=True,
@@ -139,9 +211,60 @@ def positions_frame(payload: dict[str, Any]) -> pd.DataFrame:
     return frame
 
 
+def style_positions(frame: pd.DataFrame) -> Any:
+    def _side(val: str) -> str:
+        if val == "LONG":
+            return "color: #00ef43; font-weight: 600"
+        if val == "SHORT":
+            return "color: #ff8f85; font-weight: 600"
+        return ""
+
+    def _signed_usd(val: str) -> str:
+        if not isinstance(val, str) or val == "N/A":
+            return ""
+        if val.startswith("+$"):
+            return "color: #00ef43"
+        if val.startswith("-$"):
+            return "color: #ff8f85"
+        return ""
+
+    styled = frame.style
+    if "SIDE" in frame.columns:
+        styled = styled.map(_side, subset=["SIDE"])
+    for col in ("PNL", "FUNDING"):
+        if col in frame.columns:
+            styled = styled.map(_signed_usd, subset=[col])
+    return styled
+
+
 def spread_chart(frame: pd.DataFrame, time_range: str) -> go.Figure:
     filtered = filter_time_range(frame, time_range)
     figure = go.Figure()
+
+    # Compute data-driven y range so shading never distorts the axis scale
+    y_vals = filtered["gross_spread"].dropna()
+    if len(y_vals) > 0:
+        y_min, y_max = float(y_vals.min()), float(y_vals.max())
+        pad = max((y_max - y_min) * 0.12, 2.0)
+        y_lo, y_hi = y_min - pad, y_max + pad
+    else:
+        y_lo, y_hi = -50.0, 50.0
+
+    if y_hi > 0:
+        figure.add_hrect(
+            y0=0, y1=y_hi,
+            fillcolor="rgba(0,239,67,0.05)",
+            line_width=0,
+            layer="below",
+        )
+    if y_lo < 0:
+        figure.add_hrect(
+            y0=y_lo, y1=0,
+            fillcolor="rgba(255,143,133,0.05)",
+            line_width=0,
+            layer="below",
+        )
+
     for symbol in SYMBOLS:
         rows = filtered[filtered["symbol"] == symbol]
         figure.add_trace(
@@ -161,12 +284,21 @@ def spread_chart(frame: pd.DataFrame, time_range: str) -> go.Figure:
     figure.add_hline(y=0, line_color="#526055", line_width=1)
     figure.update_layout(
         height=430,
-        margin={"l": 20, "r": 20, "t": 20, "b": 20},
+        margin={"l": 20, "r": 20, "t": 40, "b": 20},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#0a0d0b",
-        font={"family": "JetBrains Mono", "color": "#b9c8b5", "size": 11},
+        font={"family": "JetBrains Mono", "color": "#e6ece4", "size": 11},
         hovermode="x unified",
-        legend={"orientation": "h", "y": 1.08, "x": 1, "xanchor": "right"},
+        legend={
+            "orientation": "h",
+            "y": 1.08,
+            "x": 1,
+            "xanchor": "right",
+            "bgcolor": "rgba(10,13,11,0.88)",
+            "bordercolor": "rgba(113,151,101,0.3)",
+            "borderwidth": 1,
+            "font": {"color": "#e6ece4", "size": 11},
+        },
         xaxis={
             "showgrid": True,
             "gridcolor": "rgba(126,150,120,.12)",
@@ -177,15 +309,19 @@ def spread_chart(frame: pd.DataFrame, time_range: str) -> go.Figure:
             "gridcolor": "rgba(126,150,120,.12)",
             "title": "GROSS SPREAD APR (%)",
             "ticksuffix": "%",
+            "range": [y_lo, y_hi],
         },
     )
     return figure
 
 
 st.markdown(
-    """
+    f"""
     <div class="topline">
-      <div class="brand">FUNDING_RATE_ARB</div>
+      <div class="brand-row">
+        {_logo_img_tag()}
+        <div class="brand">FUNDING_RATE_ARB</div>
+      </div>
       <div class="live-chip"><span class="live-dot"></span>READ ONLY / LIVE</div>
     </div>
     """,
@@ -202,7 +338,7 @@ with st.sidebar:
     st.caption("Fixed strategy: long World / short GMX")
     st.code("gross = GMX APR - World APR", language=None)
     st.caption(f"Refresh interval: {settings.refresh_seconds}s")
-    if st.button("Refresh history now", width="stretch"):
+    if st.button("Refresh history now", use_container_width=True):
         load_history.clear()
 
 
@@ -223,10 +359,12 @@ def live_dashboard() -> None:
         position_error = str(exc)
 
     latest = latest_by_symbol(history)
+    hedge_status = compute_hedge_status(position_payload)
+
     card_columns = st.columns(4)
     for column, symbol in zip(card_columns, SYMBOLS):
         with column:
-            render_pair_card(symbol, latest.get(symbol))
+            render_pair_card(symbol, latest.get(symbol), hedge_status.get(symbol))
 
     newest = history["time_utc"].max() if not history.empty else None
     adapter_time = position_payload.get("timestamp")
@@ -263,11 +401,33 @@ def live_dashboard() -> None:
         st.info("No confirmed World or GMX positions found.")
     else:
         st.dataframe(
-            positions,
+            style_positions(positions),
             hide_index=True,
-            width="stretch",
+            use_container_width=True,
             height=min(500, 42 + len(positions) * 36),
         )
+
+        total_pnl, total_funding = compute_pnl_summary(position_payload)
+        if total_pnl is not None:
+            total_net = total_pnl + (total_funding or 0.0)
+
+            def _cls(v: float) -> str:
+                return "val-pos" if v > 0 else ("val-neg" if v < 0 else "val-neutral")
+
+            st.markdown(
+                f"""
+                <div class="pnl-strip">
+                  <span><span class="label">UNREALIZED PNL </span>
+                        <span class="{_cls(total_pnl)}">{money(total_pnl)}</span></span>
+                  <span><span class="label">FUNDING ACCRUED </span>
+                        <span class="{_cls(total_funding or 0)}">{money(total_funding)}</span></span>
+                  <span><span class="label">NET </span>
+                        <span class="{_cls(total_net)}">{money(total_net)}</span></span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         with st.expander("Raw position details"):
             st.json(position_payload.get("positions", []))
 
@@ -280,7 +440,7 @@ def live_dashboard() -> None:
     else:
         st.plotly_chart(
             spread_chart(history, time_range),
-            width="stretch",
+            use_container_width=True,
             config={"displayModeBar": False},
         )
 

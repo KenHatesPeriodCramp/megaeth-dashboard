@@ -44,6 +44,11 @@ h1 { color: #77ff76; }
   margin-bottom: 1rem;
 }
 
+.brand-row {
+  display: flex;
+  align-items: center;
+}
+
 .brand {
   color: #70ff70;
   font-weight: 750;
@@ -57,6 +62,11 @@ h1 { color: #77ff76; }
   font-size: 0.76rem;
 }
 
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 6px rgba(0, 239, 67, 0.5); }
+  50%       { box-shadow: 0 0 16px rgba(0, 239, 67, 0.95), 0 0 28px rgba(0, 239, 67, 0.3); }
+}
+
 .live-dot {
   display: inline-block;
   width: 8px;
@@ -64,7 +74,7 @@ h1 { color: #77ff76; }
   margin-right: 7px;
   background: var(--green);
   border-radius: 50%;
-  box-shadow: 0 0 10px rgba(0, 239, 67, 0.8);
+  animation: pulse-dot 2s ease-in-out infinite;
 }
 
 .pair-card {
@@ -94,6 +104,20 @@ h1 { color: #77ff76; }
 .metric-value.neutral { color: #dbe4d8; }
 .metric-detail { color: var(--muted); font-size: .72rem; margin-top: 8px; line-height: 1.7; }
 
+.hedge-status {
+  display: inline-block;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.67rem;
+  letter-spacing: .04em;
+  margin-top: 8px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.35);
+}
+.hedge-status.active  { color: var(--green); border: 1px solid rgba(0, 239, 67, 0.25); }
+.hedge-status.partial { color: #f5d87a;      border: 1px solid rgba(245, 216, 122, 0.25); }
+.hedge-status.none    { color: var(--muted); border: 1px solid rgba(126, 150, 120, 0.15); }
+
 .section-title {
   color: #e8ece7;
   font-size: 1.15rem;
@@ -114,6 +138,23 @@ h1 { color: #77ff76; }
   padding: 10px 13px;
   margin: .7rem 0;
 }
+
+.pnl-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.8rem;
+  background: rgba(12, 16, 13, .85);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 10px 14px;
+  margin-top: .5rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: .73rem;
+}
+.pnl-strip .label   { color: var(--muted); }
+.pnl-strip .val-pos { color: var(--green); font-weight: 600; }
+.pnl-strip .val-neg { color: var(--red);   font-weight: 600; }
+.pnl-strip .val-neutral { color: var(--text); }
 
 [data-testid="stDataFrame"] {
   border: 1px solid var(--border);
