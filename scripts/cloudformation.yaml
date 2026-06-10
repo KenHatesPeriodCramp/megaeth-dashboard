@@ -117,7 +117,7 @@ Resources:
   DashboardSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: "megaeth-dashboard — HTTPS inbound, HTTPS/RPC outbound"
+      GroupDescription: "megaeth-dashboard — HTTPS inbound, default outbound"
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 443
@@ -129,17 +129,6 @@ Resources:
           ToPort: 22
           CidrIp: !Ref AllowedCidr
           Description: "SSH (optional — restrict in production)"
-      SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: "0.0.0.0/0"
-          Description: "Outbound HTTPS (RPC + API calls)"
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: "0.0.0.0/0"
-          Description: "Outbound HTTP (API calls)"
       Tags:
         - Key: Name
           Value: megaeth-dashboard
