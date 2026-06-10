@@ -123,7 +123,7 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: !Ref AllowedCidr
-          Description: "HTTPS (nginx -> Streamlit)"
+          Description: "HTTPS (nginx to Streamlit)"
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
