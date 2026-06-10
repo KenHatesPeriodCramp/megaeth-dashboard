@@ -168,5 +168,57 @@ h1 { color: #77ff76; }
   background: rgba(11, 14, 12, .85);
   padding: 8px;
 }
+
+/* ── Metric cards (Trading Cycles) ───────────────────────────── */
+[data-testid="stMetric"] {
+  background: linear-gradient(145deg, rgba(18, 22, 19, .94), rgba(10, 12, 11, .94));
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 14px 16px !important;
+}
+[data-testid="stMetricLabel"] {
+  font-family: "JetBrains Mono", monospace !important;
+  font-size: 0.68rem !important;
+  letter-spacing: .06em;
+  color: var(--muted) !important;
+}
+[data-testid="stMetricValue"] {
+  font-family: "JetBrains Mono", monospace !important;
+  font-size: 1.25rem !important;
+  font-weight: 600 !important;
+  color: var(--text) !important;
+}
+[data-testid="stMetricDelta"] {
+  font-family: "JetBrains Mono", monospace !important;
+  font-size: 0.68rem !important;
+}
+
+/* ── DataFrame dark theme ────────────────────────────────────── */
+[data-testid="stDataFrame"] table {
+  background: #0c0f0d;
+}
+[data-testid="stDataFrame"] th {
+  background: var(--panel) !important;
+  color: var(--muted) !important;
+  font-family: "JetBrains Mono", monospace !important;
+  font-size: 0.68rem !important;
+  font-weight: 500 !important;
+  letter-spacing: .04em;
+  border-bottom: 2px solid var(--border) !important;
+  border-right: 1px solid rgba(113, 151, 101, 0.1) !important;
+  padding: 10px 12px !important;
+}
+[data-testid="stDataFrame"] td {
+  background: #0c0f0d !important;
+  color: var(--text) !important;
+  font-family: "JetBrains Mono", monospace !important;
+  font-size: 0.7rem !important;
+  border-bottom: 1px solid rgba(113, 151, 101, 0.08) !important;
+  border-right: 1px solid rgba(113, 151, 101, 0.06) !important;
+  padding: 7px 12px !important;
+}
+[data-testid="stDataFrame"] tr:hover td {
+  background: rgba(0, 239, 67, 0.04) !important;
+}
 </style>
 """
