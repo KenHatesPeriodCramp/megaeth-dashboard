@@ -249,6 +249,7 @@ SVCEOF
 chown -R ec2-user:ec2-user "$REPO_DIR"
 
 # ── CloudWatch Agent config ──────────────────────────────────────
+# Uses file-based collection (journald input not supported on AL2023 agent v1.x).
 cat > "$CW_AGENT_CONFIG" << 'CWEOF'
 {
   "agent": {
@@ -256,11 +257,15 @@ cat > "$CW_AGENT_CONFIG" << 'CWEOF'
   },
   "logs": {
     "logs_collected": {
-      "journald": {
-        "journalctl_path": "/usr/bin/journalctl",
-        "log_group_name": "/megaeth/dashboard/systemd",
-        "log_stream_name": "{instance_id}",
-        "from_beginning": false
+      "files": {
+        "collect_list": [
+          {
+            "file_path": "/var/log/messages",
+            "log_group_name": "/megaeth/dashboard/systemd",
+            "log_stream_name": "{instance_id}",
+            "timezone": "UTC"
+          }
+        ]
       }
     }
   },
@@ -268,8 +273,7 @@ cat > "$CW_AGENT_CONFIG" << 'CWEOF'
     "metrics_collected": {
       "mem": { "measurement": ["used_percent"] },
       "disk": { "measurement": ["used_percent"], "resources": ["/"] },
-      "cpu": { "measurement": ["cpu_usage_idle"], "totalcpu": true },
-      "nginx": { "measurement": ["nginx_requests", "nginx_connections"] }
+      "cpu": { "measurement": ["cpu_usage_idle"], "totalcpu": true }
     }
   }
 }
