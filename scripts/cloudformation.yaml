@@ -152,8 +152,10 @@ Resources:
           export REPO_BRANCH="${RepoBranch}"
           curl -fsSL https://raw.githubusercontent.com/KenHatesPeriodCramp/megaeth-dashboard/${RepoBranch}/scripts/ec2-userdata.sh | bash
 
-          # Post-bootstrap: set basic auth password from CloudFormation
-          htpasswd -b /etc/nginx/.htpasswd-dashboard "${DashboardUsername}" "$(aws ssm get-parameter --name ${SsmPrefix}/NGINX_AUTH_PASSWORD --with-decryption --query 'Parameter.Value' --output text --region ${AWS::Region} 2>/dev/null || echo 'CHANGEME')"
+          # Post-bootstrap: set basic auth password from SSM
+          htpasswd -cb /etc/nginx/.htpasswd-dashboard "${DashboardUsername}" "$(aws ssm get-parameter --name ${SsmPrefix}/NGINX_AUTH_PASSWORD --with-decryption --query 'Parameter.Value' --output text --region ${AWS::Region} 2>/dev/null || echo 'CHANGEME')"
+          chown root:nginx /etc/nginx/.htpasswd-dashboard
+          chmod 640 /etc/nginx/.htpasswd-dashboard
 
           echo "CloudFormation bootstrap complete."
           echo "Check /var/log/cloud-init-output.log for details."
