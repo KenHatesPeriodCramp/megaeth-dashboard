@@ -27,15 +27,25 @@ cd /Users/Ken/megaeth-dashboard
 ./setup.sh
 ```
 
-Edit `.env` and set:
+### Secrets (choose one)
 
+**Option A — AWS SSM (recommended):**
+```bash
+# One-time: push local secrets to SSM
+./fetch-secrets.sh --project dashboard --profile your-profile  # actually use push-secrets.sh from megaeth-bot
+
+# Every start: fetch from SSM (run.sh does this automatically)
+./fetch-secrets.sh --project dashboard
+```
+
+**Option B — Local .env (dev only):**
+Edit `.env` and set:
 - `HISTORY_API_KEY`
 - `RPC_URL`
 - `DASHBOARD_WALLET_ADDRESS`
 - `WORLD_EXCHANGE_ADDRESS`
 
-Only public/read-only chain configuration belongs here. Do not add
-`PRIVATE_KEY`.
+Only public/read-only chain configuration belongs here. Do not add private keys.
 
 ## Run
 

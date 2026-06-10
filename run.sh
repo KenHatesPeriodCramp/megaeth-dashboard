@@ -3,8 +3,19 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ── Fetch secrets from AWS SSM if available ──────────────────────
+if [[ -x "$ROOT/fetch-secrets.sh" ]]; then
+  if aws sts get-caller-identity &>/dev/null; then
+    echo "==> Fetching secrets from AWS SSM..."
+    "$ROOT/fetch-secrets.sh" --project dashboard --output "$ROOT/.env"
+  else
+    echo "==> No AWS access — using existing .env"
+  fi
+fi
+
 if [[ ! -f "$ROOT/.env" ]]; then
   echo "Missing $ROOT/.env. Run ./setup.sh and configure it first."
+  echo "Or set up AWS SSM parameters and run: ./fetch-secrets.sh --project dashboard"
   exit 1
 fi
 if [[ ! -x "$ROOT/.venv/bin/streamlit" ]]; then
