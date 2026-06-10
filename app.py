@@ -13,6 +13,7 @@ from dashboard.config import load_settings
 from dashboard.data import (
     SYMBOLS,
     DashboardDataError,
+    fetch_endurance_cycles,
     fetch_history,
     fetch_positions,
     filter_time_range,
@@ -56,6 +57,14 @@ def load_history() -> pd.DataFrame:
         settings.history_api_url,
         settings.history_api_key,
         settings.history_limit,
+    )
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def load_endurance_cycles() -> list[dict[str, Any]]:
+    return fetch_endurance_cycles(
+        settings.endurance_api_url,
+        limit=20,
     )
 
 
@@ -430,6 +439,74 @@ def live_dashboard() -> None:
 
         with st.expander("Raw position details"):
             st.json(position_payload.get("positions", []))
+
+    # ── Trading Cycles (endurance) ──────────────────────────────────
+    endurance_error = None
+    cycles: list[dict[str, Any]] = []
+    try:
+        cycles = load_endurance_cycles()
+    except DashboardDataError as exc:
+        endurance_error = str(exc)
+
+    st.markdown(
+        '<div class="section-title"><span>▦</span>TRADING_CYCLES</div>',
+        unsafe_allow_html=True,
+    )
+
+    if endurance_error:
+        st.warning(f"Endurance data unavailable: {endurance_error}")
+    elif not cycles:
+        st.info("No trading cycles recorded yet. First cycle will appear after next scheduled run (23:00/07:00/15:00 UTC).")
+    else:
+        latest_cycle = cycles[0]
+        latest_summary = (latest_cycle.get("result") or {}).get("summary") or {}
+
+        # Key metrics strip
+        gmx_pnl = latest_summary.get("gmx_base_pnl_usd")
+        gas_cost = latest_summary.get("native_spend_estimated_usd")
+        delta_ok = latest_summary.get("delta_neutral_all_samples")
+        world_funding = latest_summary.get("world_funding_apr_avg_percent")
+        gmx_funding = latest_summary.get("gmx_funding_apr_avg_percent")
+        cost_pass = (latest_summary.get("native_spend_estimated_usd") or 999) <= 1.0
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            st.metric("Latest GMX PnL", money(gmx_pnl))
+        with col2:
+            st.metric("Gas Cost", money(gas_cost))
+        with col3:
+            delta_label = "✅ Pass" if delta_ok else ("❌ Fail" if delta_ok is False else "N/A")
+            st.metric("Delta Neutral", delta_label)
+        with col4:
+            cost_label = "✅ Pass" if cost_pass else "❌ Breach"
+            st.metric("Cost ≤ $1", cost_label)
+        with col5:
+            wf = f"{world_funding:+.1f}%" if world_funding is not None else "N/A"
+            gf = f"{gmx_funding:+.1f}%" if gmx_funding is not None else "N/A"
+            st.metric("Funding (W/G)", f"{wf} / {gf}")
+
+        # Cycle history table
+        cycle_rows = []
+        for c in cycles:
+            s = (c.get("result") or {}).get("summary") or {}
+            cycle_rows.append({
+                "Run": c.get("run_id", "")[-16:],
+                "#": c.get("cycle_number"),
+                "Time (UTC)": (c.get("started_at") or "")[:19],
+                "Status": c.get("status", "").upper(),
+                "GMX PnL": money(s.get("gmx_base_pnl_usd")),
+                "Gas": money(s.get("native_spend_estimated_usd")),
+                "Delta": "PASS" if s.get("delta_neutral_all_samples") else ("FAIL" if s.get("delta_neutral_all_samples") is False else "N/A"),
+                "W APR": f"{s.get('world_funding_apr_avg_percent', 0):+.1f}%" if s.get("world_funding_apr_avg_percent") is not None else "N/A",
+                "G APR": f"{s.get('gmx_funding_apr_avg_percent', 0):+.1f}%" if s.get("gmx_funding_apr_avg_percent") is not None else "N/A",
+            })
+
+        st.dataframe(
+            pd.DataFrame(cycle_rows),
+            hide_index=True,
+            use_container_width=True,
+            height=min(300, 42 + len(cycle_rows) * 36),
+        )
 
     st.markdown(
         '<div class="section-title"><span>▥</span>HISTORICAL_GROSS_SPREAD</div>',

@@ -145,6 +145,24 @@ def fetch_positions(api_url: str, timeout: float = 25.0) -> dict[str, Any]:
     return payload
 
 
+def fetch_endurance_cycles(
+    api_url: str,
+    limit: int = 20,
+    timeout: float = 10.0,
+) -> list[dict[str, Any]]:
+    """Fetch recent endurance cycle summaries from the bot bridge."""
+    try:
+        response = requests.get(
+            f"{api_url}/endurance/cycles",
+            params={"limit": limit},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        return response.json().get("cycles", [])
+    except requests.RequestException as exc:
+        raise DashboardDataError(f"Endurance API request failed: {exc}") from exc
+
+
 def filter_time_range(frame: pd.DataFrame, label: str) -> pd.DataFrame:
     if frame.empty or label == "All":
         return frame

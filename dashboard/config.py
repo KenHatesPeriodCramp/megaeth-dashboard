@@ -16,6 +16,7 @@ class Settings:
     history_api_url: str
     history_api_key: str
     position_api_url: str
+    endurance_api_url: str
     refresh_seconds: int
     history_limit: int
 
@@ -30,6 +31,10 @@ def load_settings() -> Settings:
         position_api_url=os.getenv(
             "POSITION_API_URL",
             "http://127.0.0.1:3001",
+        ).rstrip("/"),
+        endurance_api_url=os.getenv(
+            "ENDURANCE_API_URL",
+            "http://172.31.89.148:3000",
         ).rstrip("/"),
         refresh_seconds=max(2, int(os.getenv("REFRESH_SECONDS", "5"))),
         history_limit=max(100, int(os.getenv("HISTORY_LIMIT", "10000"))),
