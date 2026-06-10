@@ -1,0 +1,33 @@
+{
+  "agent": {
+    "run_as_user": "root"
+  },
+  "logs": {
+    "logs_collected": {
+      "journald": {
+        "journalctl_path": "/usr/bin/journalctl",
+        "log_group_name": "/megaeth/dashboard/systemd",
+        "log_stream_name": "{instance_id}",
+        "from_beginning": false
+      }
+    }
+  },
+  "metrics": {
+    "metrics_collected": {
+      "mem": {
+        "measurement": ["used_percent"]
+      },
+      "disk": {
+        "measurement": ["used_percent"],
+        "resources": ["/"]
+      },
+      "cpu": {
+        "measurement": ["cpu_usage_idle"],
+        "totalcpu": true
+      },
+      "nginx": {
+        "measurement": ["nginx_requests", "nginx_connections"]
+      }
+    }
+  }
+}

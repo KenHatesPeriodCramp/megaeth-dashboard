@@ -69,3 +69,72 @@ npm run check --prefix position-service
 
 The Node service binds only to `127.0.0.1:3001` and exposes read-only
 `/health` and `/positions` endpoints.
+
+## AWS Deployment
+
+### Prerequisites
+
+1. AWS SSM parameters created under `/megaeth/dashboard/` (see `scripts/fetch-secrets.sh` for required keys, or megaeth-bot `docs/SSM_SETUP.md` for the full parameter layout)
+2. EC2 instance profile with SSM + CloudWatch Logs permissions
+3. Security group: inbound 443 (HTTPS), outbound 443 (HTTPS/RPC)
+
+### Deploy via CloudFormation
+
+```bash
+aws cloudformation create-stack \
+  --stack-name megaeth-dashboard \
+  --template-body file://scripts/cloudformation.yaml \
+  --parameters \
+    ParameterKey=KeyName,ParameterValue=your-keypair \
+    ParameterKey=AllowedCidr,ParameterValue=YOUR.IP.ADDRESS/32 \
+  --capabilities CAPABILITY_IAM \
+  --region us-east-1
+```
+
+### Deploy via EC2 UserData (manual)
+
+1. Launch Amazon Linux 2023 instance with the IAM role above
+2. Paste `scripts/ec2-userdata.sh` contents into UserData
+3. Or SSH in and run:
+
+```bash
+sudo bash -c 'export REPO_URL=https://github.com/.../megaeth-dashboard.git && \
+  curl -fsSL https://raw.githubusercontent.com/.../main/scripts/ec2-userdata.sh | bash'
+```
+
+### Push Secrets to SSM (one-time)
+
+```bash
+./scripts/push-secrets.sh --project dashboard --region us-east-1
+```
+
+### Post-Deploy
+
+```bash
+# Set basic auth password
+sudo htpasswd /etc/nginx/.htpasswd-dashboard <username>
+
+# (Optional) Replace self-signed cert with Let's Encrypt
+sudo ./scripts/setup-ssl.sh --domain dashboard.example.com --email admin@example.com
+
+# Verify
+systemctl status megaeth-dashboard-position
+systemctl status megaeth-dashboard-streamlit
+systemctl status nginx
+journalctl -u megaeth-dashboard-streamlit -f
+
+# CloudWatch logs
+aws logs tail /megaeth/dashboard/systemd --follow
+```
+
+### Architecture (Production)
+
+```
+Internet ──▶ :443 (nginx TLS + basic auth) ──▶ 127.0.0.1:8501 (Streamlit)
+                                         ├──▶ 127.0.0.1:3001 (position-service, read-only)
+                                         └──▶ CloudWatch Logs (journald)
+```
+
+Both services run under systemd with `Restart=on-failure`. Secrets are fetched
+from AWS SSM Parameter Store at startup via `ExecStartPre=fetch-secrets.sh`.
+No `.env` with real secrets exists on disk.

@@ -24,7 +24,7 @@ def load_settings() -> Settings:
     return Settings(
         history_api_url=os.getenv(
             "HISTORY_API_URL",
-            "http://52.3.225.23:8080/history",
+            "http://127.0.0.1:8080/history",
         ).rstrip("/"),
         history_api_key=os.getenv("HISTORY_API_KEY", ""),
         position_api_url=os.getenv(

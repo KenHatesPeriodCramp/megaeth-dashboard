@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  MegaETH Funding Rate Dashboard — EC2 instance with nginx reverse proxy,
+  TLS termination, basic auth, and CloudWatch logging.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Repository"
+        Parameters:
+          - RepoUrl
+          - RepoBranch
+      - Label:
+          default: "Instance"
+        Parameters:
+          - InstanceType
+          - KeyName
+          - AllowedCidr
+      - Label:
+          default: "Secrets & Auth"
+        Parameters:
+          - SsmPrefix
+          - DashboardUsername
+
+Parameters:
+  RepoUrl:
+    Type: String
+    Default: "https://github.com/KenHatesPeriodCramp/megaeth-dashboard.git"
+    Description: "Git repository URL"
+
+  RepoBranch:
+    Type: String
+    Default: "main"
+    Description: "Git branch to deploy"
+
+  InstanceType:
+    Type: String
+    Default: "t3.small"
+    AllowedValues:
+      - "t3.small"
+      - "t3.medium"
+    Description: "EC2 instance type"
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: "Must be an existing EC2 KeyPair"
+    Description: "SSH key pair name"
+
+  AllowedCidr:
+    Type: String
+    Default: "0.0.0.0/0"
+    Description: "CIDR allowed for HTTPS inbound (default: any)"
+
+  SsmPrefix:
+    Type: String
+    Default: "/megaeth/dashboard"
+    Description: "SSM Parameter Store prefix"
+
+  DashboardUsername:
+    Type: String
+    Default: "admin"
+    Description: "Username for nginx basic auth"
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+
+Resources:
+  # ── IAM Instance Role ──────────────────────────────────────────
+  DashboardInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+      Policies:
+        - PolicyName: DashboardSecretsAndLogs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParametersByPath
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/megaeth/dashboard/*"
+              - Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource: "*"
+                Condition:
+                  StringLike:
+                    kms:ViaService: !Sub "ssm.${AWS::Region}.amazonaws.com"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/megaeth/dashboard/*"
+
+  DashboardInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref DashboardInstanceRole
+
+  # ── Security Group ─────────────────────────────────────────────
+  DashboardSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "megaeth-dashboard — HTTPS inbound, HTTPS/RPC outbound"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref AllowedCidr
+          Description: "HTTPS (nginx → Streamlit)"
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AllowedCidr
+          Description: "SSH (optional — restrict in production)"
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: "0.0.0.0/0"
+          Description: "Outbound HTTPS (RPC + API calls)"
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+          Description: "Outbound HTTP (API calls)"
+      Tags:
+        - Key: Name
+          Value: megaeth-dashboard
+
+  # ── EC2 Instance ───────────────────────────────────────────────
+  DashboardInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref DashboardInstanceProfile
+      SecurityGroupIds:
+        - !Ref DashboardSecurityGroup
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Bootstrap via ec2-userdata.sh with CloudFormation overrides
+          export AWS_REGION="${AWS::Region}"
+          export REPO_URL="${RepoUrl}"
+          export REPO_BRANCH="${RepoBranch}"
+          curl -fsSL https://raw.githubusercontent.com/KenHatesPeriodCramp/megaeth-dashboard/${RepoBranch}/scripts/ec2-userdata.sh | bash
+
+          # Post-bootstrap: set basic auth password from CloudFormation
+          htpasswd -b /etc/nginx/.htpasswd-dashboard "${DashboardUsername}" "$(aws ssm get-parameter --name ${SsmPrefix}/NGINX_AUTH_PASSWORD --with-decryption --query 'Parameter.Value' --output text --region ${AWS::Region} 2>/dev/null || echo 'CHANGEME')"
+
+          echo "CloudFormation bootstrap complete."
+          echo "Check /var/log/cloud-init-output.log for details."
+      Tags:
+        - Key: Name
+          Value: megaeth-dashboard
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+            DeleteOnTermination: true
+            Encrypted: true
+
+Outputs:
+  DashboardUrl:
+    Description: "Dashboard URL"
+    Value: !Sub "https://${DashboardInstance.PublicDnsName}"
+
+  InstanceId:
+    Description: "EC2 Instance ID"
+    Value: !Ref DashboardInstance
+
+  SshCommand:
+    Description: "SSH command"
+    Value: !Sub "ssh ec2-user@${DashboardInstance.PublicDnsName}"
+
+  CloudWatchLogGroup:
+    Description: "CloudWatch Logs group for systemd journal"
+    Value: "/megaeth/dashboard/systemd"
