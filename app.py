@@ -137,6 +137,25 @@ def compute_pnl_summary(
     return (total_pnl, total_funding) if has_data else (None, None)
 
 
+def _cycle_note(status: str | None, error: str | None) -> str:
+    """Extract a concise note from cycle status and error."""
+    if status == "ok":
+        return ""
+    if not error:
+        return "Unknown failure"
+    # Parse HTTPStatusError to surface the bridge-side cause
+    if "500 Internal Server Error" in error and "world/open" in error:
+        return "Bridge /world/open 500 — check bridge journal for SDK errors"
+    if "502 Bad Gateway" in error:
+        return "Bridge unreachable — service may be down"
+    # Generic: take first meaningful line
+    lines = [l.strip() for l in error.split("\n") if l.strip()]
+    for line in lines:
+        if "Error:" in line or "error:" in line:
+            return line[:120]
+    return lines[0][:120] if lines else "Unknown failure"
+
+
 def render_pair_card(
     symbol: str,
     row: dict[str, Any] | None,
@@ -461,44 +480,52 @@ def live_dashboard() -> None:
         latest_cycle = cycles[0]
         latest_summary = (latest_cycle.get("result") or {}).get("summary") or {}
 
-        # Key metrics strip
+        # Key metrics strip (6 cards)
         gmx_pnl = latest_summary.get("gmx_base_pnl_usd")
+        world_pnl = latest_summary.get("world_gross_pnl_usd")
+        net_pnl = (
+            (gmx_pnl or 0) + (world_pnl or 0)
+            if gmx_pnl is not None and world_pnl is not None
+            else None
+        )
         gas_cost = latest_summary.get("native_spend_estimated_usd")
         delta_ok = latest_summary.get("delta_neutral_all_samples")
-        world_funding = latest_summary.get("world_funding_apr_avg_percent")
-        gmx_funding = latest_summary.get("gmx_funding_apr_avg_percent")
         cost_pass = (latest_summary.get("native_spend_estimated_usd") or 999) <= 1.0
 
-        col1, col2, col3, col4, col5 = st.columns(5)
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
         with col1:
-            st.metric("Latest GMX PnL", money(gmx_pnl))
+            st.metric("GMX PnL", money(gmx_pnl))
         with col2:
-            st.metric("Gas Cost", money(gas_cost))
+            st.metric("World PnL", money(world_pnl))
         with col3:
+            st.metric("Net PnL", money(net_pnl))
+        with col4:
+            st.metric("Gas Cost", money(gas_cost))
+        with col5:
             delta_label = "✅ Pass" if delta_ok else ("❌ Fail" if delta_ok is False else "N/A")
             st.metric("Delta Neutral", delta_label)
-        with col4:
+        with col6:
             cost_label = "✅ Pass" if cost_pass else "❌ Breach"
             st.metric("Cost ≤ $1", cost_label)
-        with col5:
-            wf = f"{world_funding:+.1f}%" if world_funding is not None else "N/A"
-            gf = f"{gmx_funding:+.1f}%" if gmx_funding is not None else "N/A"
-            st.metric("Funding (W/G)", f"{wf} / {gf}")
 
         # Cycle history table
         cycle_rows = []
         for c in cycles:
             s = (c.get("result") or {}).get("summary") or {}
+            g = s.get("gmx_base_pnl_usd")
+            w = s.get("world_gross_pnl_usd")
+            n = (g or 0) + (w or 0) if g is not None and w is not None else None
+            error = c.get("error")
+            note = _cycle_note(c.get("status"), error)
             cycle_rows.append({
                 "Run": c.get("run_id", "")[-16:],
                 "#": c.get("cycle_number"),
                 "Time (UTC)": (c.get("started_at") or "")[:19],
                 "Status": c.get("status", "").upper(),
-                "GMX PnL": money(s.get("gmx_base_pnl_usd")),
-                "Gas": money(s.get("native_spend_estimated_usd")),
-                "Delta": "PASS" if s.get("delta_neutral_all_samples") else ("FAIL" if s.get("delta_neutral_all_samples") is False else "N/A"),
-                "W APR": f"{s.get('world_funding_apr_avg_percent', 0):+.1f}%" if s.get("world_funding_apr_avg_percent") is not None else "N/A",
-                "G APR": f"{s.get('gmx_funding_apr_avg_percent', 0):+.1f}%" if s.get("gmx_funding_apr_avg_percent") is not None else "N/A",
+                "GMX PnL": money(g),
+                "World PnL": money(w),
+                "Net PnL": money(n),
+                "Notes": note,
             })
 
         st.dataframe(
