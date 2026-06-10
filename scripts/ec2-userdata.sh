@@ -59,11 +59,19 @@ chmod +x "$REPO_DIR/scripts/setup-ssl.sh"
 # ── Generate self-signed SSL cert (if none provided) ─────────────
 mkdir -p "$SSL_DIR"
 if [[ ! -f "$SSL_CERT" ]] || [[ ! -f "$SSL_KEY" ]]; then
+    INSTANCE_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || true)
+    [[ -n "$INSTANCE_IP" ]] || INSTANCE_IP="127.0.0.1"
     openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
         -keyout "$SSL_KEY" \
         -out "$SSL_CERT" \
         -subj "/CN=megaeth-dashboard/O=MegaETH/C=US" \
-        -addext "subjectAltName=IP:$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 || echo '127.0.0.1')"
+        -addext "subjectAltName=IP:${INSTANCE_IP}" || {
+        echo "WARNING: OpenSSL -addext failed (older OpenSSL). Retrying without SAN..."
+        openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout "$SSL_KEY" \
+            -out "$SSL_CERT" \
+            -subj "/CN=megaeth-dashboard/O=MegaETH/C=US"
+    }
     chmod 600 "$SSL_KEY"
     echo "Self-signed SSL certificate generated."
 else
@@ -75,7 +83,8 @@ fi
 #   sudo htpasswd /etc/nginx/.htpasswd-dashboard <user>
 if [[ ! -f "$HTPASSWD_FILE" ]]; then
     echo 'admin:$apr1$CHANGEME$CHANGEMECHANGEMECHANGEME' > "$HTPASSWD_FILE"
-    chmod 600 "$HTPASSWD_FILE"
+    chown root:nginx "$HTPASSWD_FILE"
+    chmod 640 "$HTPASSWD_FILE"
     echo "WARNING: Placeholder basic auth created. Replace immediately."
 fi
 
@@ -183,7 +192,7 @@ ExecStartPre=/opt/megaeth-dashboard/scripts/fetch-secrets.sh --project dashboard
 ExecStart=/usr/bin/node --import tsx server.js
 Restart=on-failure
 RestartSec=10
-EnvironmentFile=/opt/megaeth-dashboard/.env
+EnvironmentFile=-/opt/megaeth-dashboard/.env
 StandardOutput=journal
 StandardError=journal
 
@@ -191,7 +200,7 @@ StandardError=journal
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
+ProtectHome=read-only
 ReadWritePaths=/opt/megaeth-dashboard/.env /tmp
 ReadOnlyPaths=/opt/megaeth-dashboard
 
@@ -220,7 +229,7 @@ ExecStart=/opt/megaeth-dashboard/.venv/bin/streamlit run /opt/megaeth-dashboard/
     --server.enableXsrfProtection true
 Restart=on-failure
 RestartSec=10
-EnvironmentFile=/opt/megaeth-dashboard/.env
+EnvironmentFile=-/opt/megaeth-dashboard/.env
 StandardOutput=journal
 StandardError=journal
 
@@ -228,7 +237,7 @@ StandardError=journal
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
+ProtectHome=read-only
 ReadWritePaths=/opt/megaeth-dashboard/.env /tmp
 ReadOnlyPaths=/opt/megaeth-dashboard
 
